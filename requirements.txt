@@ -1,0 +1,6 @@
+streamlit
+vnstock
+pandas
+numpy
+scipy
+plotly
