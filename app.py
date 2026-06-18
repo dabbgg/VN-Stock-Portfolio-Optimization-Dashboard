@@ -126,7 +126,7 @@ def run_monte_carlo(mean_ret, cov_mat, rfr, num_portfolios=5000):
 # Main UI
 # -----------------------------
 st.title("Portfolio Optimization Dashboard")
-st.markdown("Institutional-grade asset allocation and risk analysis")
+st.markdown("Investment-grade asset allocation and risk analysis")
 
 left_col, right_col = st.columns([1, 2.5], gap="large")
 
