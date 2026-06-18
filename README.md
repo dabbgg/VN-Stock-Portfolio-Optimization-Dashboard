@@ -1,68 +1,117 @@
 # VN Stock Portfolio Optimization Dashboard
 
-A professional, institutional-grade portfolio analysis and optimization tool for the Vietnamese stock market. This application allows users to construct portfolios, optimize asset allocation based on quantitative strategies, and analyze risk-adjusted performance against the VNINDEX benchmark.
+## 📊 Tổng quan
 
-## 🎯 Purpose
-The dashboard is designed for quantitative analysts and investors to:
-- **Analyze** the historical performance of a custom selection of Vietnamese equities.
-- **Optimize** asset weights to either maximize the Sharpe Ratio or minimize overall portfolio volatility.
-- **Visualize** risk metrics, including Max Drawdown and asset correlations.
-- **Compare** portfolio equity curves against the market benchmark (VNINDEX) on a normalized basis.
+Dashboard tối ưu hóa danh mục đầu tư cho thị trường chứng khoán Việt Nam. Ứng dụng cho phép phân bổ tài sản dựa trên dữ liệu lịch sử, chạy mô phỏng Monte Carlo và trực quan hóa rủi ro.
 
-## 🛠 Methodology
+---
 
-### 1. Data Processing & Alignment
-To ensure mathematical integrity, the app implements a strict data alignment pipeline:
-- **Common Window**: The analysis window is sliced from the **latest common start date** across all selected assets and the benchmark. This prevents "look-ahead bias" and ensures no `NaN` values exist in the return series.
-- **Forward Filling**: Missing values are handled via forward-filling (`ffill`) to account for non-trading days or liquidity gaps.
+## 🔧 Các hàm (Functions) & Logic 
 
-### 2. Performance Metrics
-All metrics are annualized assuming **252 trading days** per year.
 
-- **Annualized Return**: 
-  $$\text{Annual Return} = \text{Mean Daily Return} \times 252$$
-- **Annualized Volatility**: 
-  $$\text{Annual Volatility} = \text{Std Dev of Daily Returns} \times \sqrt{252}$$
-- **Sharpe Ratio**: 
-  $$\text{Sharpe Ratio} = \frac{\text{Annual Return} - \text{Risk Free Rate}}{\text{Annual Volatility}}$$
-  *(Default Risk-Free Rate: 3%)*
-- **Max Drawdown (MDD)**: 
-  The maximum peak-to-trough decline of the normalized equity curve, representing the worst possible loss from a historical peak.
+### 1. Optimization Functions
 
-### 3. Optimization Strategies
-The app utilizes the `scipy.optimize` library (SLSQP algorithm) to solve constrained optimization problems:
+#### `optimize_max_sharpe(mean_array, cov_matrix, rfr)`
+- **Mục đích:** Tìm danh mục có Sharpe Ratio cao nhất
+- **Công thức:**
+  ```
+  Sharpe Ratio = (E[Rp] - Rf) / σp
+  ```
+  Trong đó:
+  - `E[Rp]` = Expected return của danh mục = w^T × μ
+  - `Rf` = Risk-free rate
+  - `σp` = Độ lệch chuẩn của danh mục = √(w^T × Σ × w)
+  - `w` = Vector trọng số
+  - `μ` = Vector expected returns
+  - `Σ` = Ma trận hiệp phương sai
+- **Phương pháp:** Sử dụng SciPy `minimize` với phương pháp SLSQP
+- **Constraints:** Tổng trọng số = 1 (∑w_i = 1), trọng số >= 0 (w_i ≥ 0)
 
-- **Maximize Sharpe**: Finds the weight vector $\mathbf{w}$ that maximizes the ratio of excess return to volatility, subject to $\sum w_i = 1$ and $0 \le w_i \le 1$.
-- **Minimum Volatility**: Finds the weight vector $\mathbf{w}$ that minimizes the portfolio variance $\mathbf{w}^T \Sigma \mathbf{w}$, where $\Sigma$ is the annualized covariance matrix.
-- **Equal Weight**: A naive $1/N$ allocation strategy.
+#### `optimize_min_vol(cov_matrix)`
+- **Mục đích:** Tìm danh mục có độ biến động (volatility) thấp nhất
+- **Công thức:**
+  ```
+  Minimize: σp = √(w^T × Σ × w)
+  ```
+- **Phương pháp:** Tương tự nhưng tối thiểu hóa volatility thay vì maximize Sharpe
 
-## 📊 Data Source & Availability
+---
 
-- **Source**: Data is fetched via the `vnstock` Python library, utilizing the **KBS** data provider.
-- **Coverage**: Includes major Vietnamese tickers (VN30 and popular mid-caps).
-- **Availability**: Data is subject to the availability of the KBS API. Real-time updates are typically available during Vietnam trading hours (09:00 - 15:00 GMT+7).
+### 2. Monte Carlo Simulation
 
-## 🚀 Getting Started
+#### `run_monte_carlo(mean_ret, cov_mat, rfr, num_portfolios=5000)`
+- **Mục đích:** Mô phỏng hàng nghìn danh mục để vẽ Efficient Frontier
+- **Logic:**
+  1. Sinh ngẫu nhiên `num_portfolios` bộ trọng số
+  2. Chuẩn hóa mỗi bộ trọng số để tổng = 1
+  3. Tính return và volatility cho mỗi danh mục
+- **Vectorization:** Sử dụng NumPy matrix multiplication và `np.einsum` để tính toàn bộ 5000 danh mục trong vài milliseconds:
+  ```python
+  port_returns = weights @ mean_ret  # Matrix multiplication
+  port_vols = np.sqrt(np.einsum('ij,jk,ik->i', weights, cov_mat, weights))
+  ```
+- **Output:** Array [returns, volatilities, sharpes] cho 5000 danh mục
 
-### Prerequisites
-- Python 3.9+
-- Streamlit
-- vnstock
-- scipy
-- plotly
-- pandas
-- numpy
+---
 
-### Installation & Execution
-1. Clone the repository.
-2. Install dependencies:
-   ```bash
-   pip install streamlit pandas numpy plotly scipy vnstock
-   ```
-3. Run the application:
-   ```bash
-   streamlit run app.py
-   ```
+### 3. Portfolio Metrics Calculations
 
-## ⚖️ Disclaimer
-This tool is for educational and analytical purposes only. It does not constitute financial advice. Past performance is not indicative of future results.
+#### Buy-and-Hold Logic
+Khác với naive rebalancing (tái cân bằng hàng ngày), ứng dụng này mô phỏng **Buy-and-Hold** thực tế:
+
+```python
+cum_asset_returns = (1 + asset_returns).cumprod()  # Tích lũy lợi nhuận
+port_values = (cum_asset_returns * weights).sum(axis=1)  # Giá trị danh mục theo thời gian
+```
+
+- **Điểm khác biệt:** Trọng số tự động drift theo thời gian dựa trên cumulative returns của từng asset
+- **Kết quả:** Phản ánh đúng поведение của danh mục đầu tư thực tế (không có tái cân bằng giả định)
+
+#### Các chỉ số tính toán:
+
+| Chỉ số | Công thức | Ý nghĩa |
+|--------|-----------|---------|
+| **Annual Return** | `ann_ret = port_daily_ret.mean() × 252` | Lợi nhuận hàng năm |
+| **Annual Volatility** | `ann_vol = port_daily_ret.std() × √252` | Độ biến động hàng năm |
+| **Sharpe Ratio** | `sharpe = (ann_ret - RFR) / ann_vol` | Lợi nhiệp điều chỉnh rủi ro |
+| **Max Drawdown** | `mdd = (port_norm / port_norm.cummax() - 1).min()` | Mức sụt giảm lớn nhất |
+
+---
+
+
+## 🎯 Cách sử dụng
+
+### Chế độ Manual Allocation:
+1. Nhập trọng số (%) cho từng mã chứng khoán
+2. Tổng phải = 100%
+3. Click "Equal Weight" để reset về trọng số bằng nhau
+
+### Chế độ Auto Optimize:
+1. Chọn strategy: "Maximize Sharpe" hoặc "Minimum Volatility"
+2. Click "Run Optimization"
+3. Kết quả sẽ hiển thị trên chart và metrics
+
+### Xem kết quả:
+- **Equity Curve:** So sánh danh mục với VNINDEX
+- **Metrics:** Annual Return, Volatility, Sharpe, Max Drawdown
+- **Pie Chart:** Phân bổ tài sản hiện tại
+- **Monte Carlo:** Efficient Frontier với 5000 simulated portfolios
+- **Correlation Matrix:** Tương quan giữa các assets
+
+---
+
+## 🛠 Cài đặt
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+### Requirements:
+```
+streamlit>=1.30.0
+pandas>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+plotly>=5.18.0
+vnstock>=0.2.0
